@@ -14,10 +14,10 @@
 }
 .mascot-puppet {
   display: block; width: 100%; height: 100%; padding: 0; border: 0;
-  background: none; color: inherit; pointer-events: auto; cursor: grab;
+  background: none; color: inherit; pointer-events: auto; cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.mascot-puppet:active { cursor: grabbing; }
+.mascot-puppet:active { cursor: pointer; }
 .mascot-puppet:focus-visible { outline: 2px solid #3b6fe0; outline-offset: -14px; border-radius: 45%; }
 .mascot svg { display: block; width: 100%; height: 100%; overflow: visible; opacity: .78; }
 .mascot [data-part] { will-change: transform; }

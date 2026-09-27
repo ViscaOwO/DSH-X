@@ -1,4 +1,5 @@
 (() => {
+  const assetRoot = new URL('./mascot/', document.currentScript.src);
   const host = document.createElement('aside');
   host.className = 'mascot';
   host.setAttribute('aria-label', '互动看板娘');
@@ -10,10 +11,10 @@
           <linearGradient id="mascot-eye" x2="1" y2="1"><stop stop-color="#141a32"/><stop offset="1" stop-color="#242b49"/></linearGradient>
         </defs>
         <g data-part="head">
-          <image class="mascot-light-layer" href="/mascot/base.png" width="1254" height="1254" mask="url(#mascot-base-mask)"/>
-          <image class="mascot-dark-layer" href="/mascot/base-dark-soft.png" width="1254" height="1254" mask="url(#mascot-base-mask)"/>
-          <g data-part="tuft"><image class="mascot-light-layer" href="/mascot/tuft.svg" width="1254" height="1254"/><image class="mascot-dark-layer" href="/mascot/tuft-dark.svg" width="1254" height="1254"/></g>
-          <g data-part="bow"><image class="mascot-light-layer" href="/mascot/bow.svg" width="1254" height="1254"/><image class="mascot-dark-layer" href="/mascot/bow-dark.svg" width="1254" height="1254"/></g>
+          <image class="mascot-light-layer" href="${assetRoot}base.png" width="1254" height="1254" mask="url(#mascot-base-mask)"/>
+          <image class="mascot-dark-layer" href="${assetRoot}base-dark-soft.png" width="1254" height="1254" mask="url(#mascot-base-mask)"/>
+          <g data-part="tuft"><image class="mascot-light-layer" href="${assetRoot}tuft.svg" width="1254" height="1254"/><image class="mascot-dark-layer" href="${assetRoot}tuft-dark.svg" width="1254" height="1254"/></g>
+          <g data-part="bow"><image class="mascot-light-layer" href="${assetRoot}bow.svg" width="1254" height="1254"/><image class="mascot-dark-layer" href="${assetRoot}bow-dark.svg" width="1254" height="1254"/></g>
           <g data-part="gaze">
             <g transform="translate(206 760) rotate(18)"><g data-part="eye-left"><ellipse rx="61" ry="107" fill="url(#mascot-eye)"/><ellipse cx="-17" cy="-42" rx="10" ry="15" fill="white" opacity=".65"/></g><path data-part="lid-left" d="M-53 10Q0 -33 53 10" fill="none" stroke="#222940" stroke-width="13" stroke-linecap="round" opacity="0"/></g>
             <g transform="translate(631 908) rotate(18)"><g data-part="eye-right"><ellipse rx="57" ry="103" fill="url(#mascot-eye)"/><ellipse cx="-17" cy="-42" rx="9" ry="14" fill="white" opacity=".65"/></g><path data-part="lid-right" d="M-50 10Q0 -32 50 10" fill="none" stroke="#222940" stroke-width="13" stroke-linecap="round" opacity="0"/></g>
@@ -28,8 +29,28 @@
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   let failed = false;
   let frame = 0, last = 0, clock = 0, nextBlink = 2 + Math.random() * 3;
-  let blinkStart = -10, happyUntil = 0, swayStart = -10;
+  let blinkStart = -10, bounce = 0;
   let targetX = 0, targetY = 0, x = 0, y = 0, tuft = 0, velocity = 0, bow = 0, bowVelocity = 0;
+  // Original fish rig, with independently sprung pose and expression channels.
+  const springs = Object.fromEntries(Object.entries({ tilt: 0, lift: 0, squash: 1, left: 1, right: 1, smile: 0 })
+    .map(([key, value]) => [key, { value, velocity: 0 }]));
+  const playlist = ['curious', 'idle', 'thinking', 'idle', 'playful', 'idle', 'drowsy', 'sleeping', 'waking', 'idle'];
+  let state = 'curious', stateAt = 0, stateUntil = 3.2, sequence = 0, hovering = false;
+  function setState(next, duration) {
+    state = next; stateAt = clock; stateUntil = clock + duration;
+    host.dataset.state = next;
+  }
+  function spring(key, target, dt) {
+    const channel = springs[key];
+    // Substeps keep the damped oscillator stable on slower displays.
+    const steps = Math.ceil(dt / .008), step = dt / steps;
+    for (let i = 0; i < steps; i++) {
+      channel.velocity += ((target - channel.value) * 110 - channel.velocity * 14) * step;
+      channel.value += channel.velocity * step;
+    }
+    return channel.value;
+  }
+  host.dataset.state = state;
   let rect = host.getBoundingClientRect();
   const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   const active = () => !failed && !reduced.matches && !document.hidden
@@ -46,7 +67,7 @@
   function sync() {
     cancelAnimationFrame(frame); frame = 0; last = 0;
     if (active()) frame = requestAnimationFrame(tick);
-    else neutral();
+    else { neutral(); relax(); }
   }
   reduced.addEventListener('change', sync);
   document.addEventListener('visibilitychange', sync);
@@ -60,18 +81,27 @@
   const relax = () => { targetX = 0; targetY = 0; };
   document.documentElement.addEventListener('pointerleave', relax);
   window.addEventListener('blur', relax);
+  button.addEventListener('pointerenter', () => {
+    if (!active()) return;
+    hovering = true;
+    setState(state === 'sleeping' || state === 'drowsy' ? 'waking' : 'curious', 1.8);
+  });
+  button.addEventListener('pointerleave', () => { hovering = false; });
   let lastPet = -10;
   button.addEventListener('pointermove', event => {
     if (!active() || clock - lastPet < .3) return;
     const py = (event.clientY - rect.top) / rect.height;
     if (py < .45) { velocity += clamp(event.movementX || 0, -15, 15) * 2; lastPet = clock; }
   }, { passive: true });
-  // 点击回应：闭眼呼一口气，外加一次缓慢的左右晃动。不再给 tuft/bow 灌角速度、
-  // 头部也不位移，所以不会像以前那样抖一下。
-  button.addEventListener('click', () => {
+  button.addEventListener('click', event => {
     if (!active()) return;
-    happyUntil = clock + 1.15;
-    swayStart = clock;
+    const px = event.detail ? (event.clientX - rect.left) / rect.width : .4;
+    const py = event.detail ? (event.clientY - rect.top) / rect.height : .4;
+    bounce = 1; setState('happy', 1.5);
+    if (py < .3) velocity += 145;
+    else if (px > .73) bowVelocity += 155;
+    else { velocity += 75; bowVelocity += 65; }
+    velocity = clamp(velocity,-180,180); bowVelocity = clamp(bowVelocity,-180,180);
   });
   function tick(now) {
     if (!active()) { frame = 0; return; }
@@ -79,35 +109,50 @@
     last = now; clock += dt;
     const ease = 1 - Math.exp(-dt * 7);
     x += (targetX - x) * ease; y += (targetY - y) * ease;
-    // 点击后的晃动：1.8s 内两个来回，振幅由两端归零的 sin 包络给出，起手和收尾都从 0
-    // 平滑过渡，所以没有突然的位移。呆毛和蝴蝶结跟着这个包络走弹簧（而不是灌一次性的
-    // 角速度），既有跟随和回摆，又不会抖。
-    const swayAge = clock - swayStart;
-    const sway = swayAge > 0 && swayAge < 1.8
-      ? Math.sin(swayAge / 1.8 * Math.PI) * Math.sin(swayAge / 1.05 * Math.PI * 2) * 2.4
-      : 0;
-    const tuftTarget = x * 7 + Math.sin(clock * 2.3) * 2 + sway * 2.8;
+    const tuftTarget = x * 7 + Math.sin(clock * 2.3) * 2;
     velocity += ((tuftTarget - tuft) * 65 - velocity * 9) * dt; tuft += velocity * dt;
-    const bowTarget = -x * 5 + Math.sin(clock * 2.7 + 1) * 2.5 - sway * 2.2;
+    const bowTarget = -x * 5 + Math.sin(clock * 2.7 + 1) * 2.5;
     bowVelocity += ((bowTarget - bow) * 75 - bowVelocity * 10) * dt; bow += bowVelocity * dt;
-    parts.head.setAttribute('transform', `translate(${x * 8} ${Math.sin(clock * 1.6) * 3 + y * 5}) rotate(${x * 2.4 + sway} 460 1080)`);
+    if (clock >= stateUntil) {
+      if (hovering) setState('curious', 2.4);
+      else { sequence = (sequence + 1) % playlist.length; setState(playlist[sequence], playlist[sequence] === 'sleeping' ? 4 : 3.2); }
+    }
+    const age = clock - stateAt;
+    let tilt = Math.sin(clock * .8) * 1.2, lift = Math.sin(clock * 1.6) * 4;
+    let squash = 1, left = 1, right = 1, smile = 0;
+    let lookX = x, lookY = y;
+    switch (state) {
+      case 'curious': tilt += 6; lift -= 9; left = 1.08; right = .82; break;
+      case 'thinking': tilt -= 5; left = .65; right = .85; lookY -= .6; lookX += .35; break;
+      case 'playful': tilt += Math.sin(age * 4) * 5; lift -= Math.abs(Math.sin(age * 3)) * 22; squash += Math.sin(age * 6) * .018; break;
+      case 'drowsy': tilt += 4; lift += 10; left = right = .45; break;
+      case 'sleeping': tilt += 6; lift += 16; left = right = .055; squash += Math.sin(age * 2) * .012; lookX = lookY = 0; break;
+      case 'waking': lift -= 16 * Math.sin(Math.min(age / 1.8, 1) * Math.PI); left = right = 1.12; break;
+      case 'happy': tilt += Math.sin(age * 9) * 3; lift -= Math.abs(Math.sin(age * 7)) * 20; squash += Math.sin(age * 10) * .025; smile = 1; break;
+    }
+    tilt = spring('tilt', tilt, dt);
+    lift = spring('lift', lift, dt);
+    squash = spring('squash', squash, dt);
+    left = spring('left', left, dt); right = spring('right', right, dt);
+    smile = clamp(spring('smile', smile, dt), 0, 1);
+    bounce *= Math.exp(-dt * 4);
+    parts.head.setAttribute('transform', `translate(${x * 8} ${lift + y * 5 - bounce * 18}) rotate(${tilt + x * 2.4} 460 1080) translate(460 1080) scale(${1 / squash} ${squash}) translate(-460 -1080)`);
     parts.tuft.setAttribute('transform', `rotate(${tuft} 472 272)`);
     parts.bow.setAttribute('transform', `rotate(${bow} 1022 818)`);
-    parts.gaze.setAttribute('transform', `translate(${x * 19} ${y * 13})`);
+    parts.gaze.setAttribute('transform', `translate(${clamp(lookX, -1, 1) * 24} ${clamp(lookY, -1, 1) * 17})`);
     if (clock >= nextBlink) { blinkStart = clock; nextBlink = clock + 2.6 + Math.random() * 4; }
     const blinkAge = clock - blinkStart;
     const blink = blinkAge < .19 ? 1 - Math.sin(blinkAge / .19 * Math.PI) * .97 : 1;
-    const happy = clock < happyUntil;
     for (const side of ['left','right']) {
-      parts[`eye-${side}`].setAttribute('transform', `scale(1 ${happy ? 0 : Math.max(.03,blink)})`);
-      parts[`lid-${side}`].setAttribute('opacity', happy ? '1' : '0');
+      parts[`eye-${side}`].setAttribute('transform', `scale(1 ${Math.max(.025, (side === 'left' ? left : right) * blink * (1 - smile))})`);
+      parts[`lid-${side}`].setAttribute('opacity', String(smile));
     }
-    parts.blush.setAttribute('opacity', happy ? '.42' : '0');
+    parts.blush.setAttribute('opacity', String(smile * .42));
     frame = requestAnimationFrame(tick);
   }
   // If the layer fails to load, keep the original illustration instead of a partial face.
   const base = new Image();
-  base.onerror = () => { failed = true; sync(); host.remove(); document.querySelector('.backdrop-character').style.display = 'block'; };
-  base.src = '/mascot/base.png';
+  base.onerror = () => { failed = true; sync(); host.remove(); const fallback = document.querySelector('.backdrop-character'); if (fallback) fallback.style.display = 'block'; };
+  base.src = new URL('base.png', assetRoot).href;
   sync();
 })();
